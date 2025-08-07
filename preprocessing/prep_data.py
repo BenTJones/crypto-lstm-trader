@@ -37,12 +37,12 @@ def window_creation(norm_df,window_size = 48):
 
 def train_val_test_split (x,y,train_frac = 0.7,val_frac = 0.15):
     size = len(y)
-    train_end = size * train_frac
-    val_end = size * (train_frac + val_frac)
+    train_end = int(size * train_frac)
+    val_end = int(size * (train_frac + val_frac))
     
     x_train,y_train = x[:train_end],y[:train_end]
     x_val, y_val = x[train_end:val_end],y[train_end:val_end]
-    x_test,y_test = x[val_end:],y[val_end]
+    x_test,y_test = x[val_end:],y[val_end:]
     
     return x_train, y_train, x_val, y_val, x_test, y_test
 
