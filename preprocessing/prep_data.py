@@ -24,8 +24,8 @@ def window_creation(norm_df,window_size = 48):
     x = []
     y = []
     for i in range(len(labels)-window_size):
-        x.append(features[i:i + window_size])
-        y.append(labels[i+window_size])
+        x.append(features.iloc[i:i + window_size])
+        y.append(labels.iloc[i+window_size])
         
     x = np.array(x)
     y = np.array(y)
