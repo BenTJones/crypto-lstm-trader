@@ -3,12 +3,16 @@ import pandas as pd
 import numpy as np
 
 def target_def(df):
+    '''Uses simple next timestep method to generate label column
+    Returns DF with labels'''
     daily_change = df['close'].shift(-1) - df['close']
     df['label'] = np.where(daily_change > 0,1,0)
     df = df[:-1]
     return df 
 
 def target_def_knext(df,k = 4,use_log_returns = True,keep_futurek = False):
+    '''Uses a k next method to return a df with labels
+    Returns DF with labels'''
     out = df.copy()
     if use_log_returns:
         out['futurek'] = np.log(out['close'].shift(-k)) - np.log(out['close'])
@@ -23,6 +27,8 @@ def target_def_knext(df,k = 4,use_log_returns = True,keep_futurek = False):
     return out
         
 def z_score_norm(df,train_frac = 0.7):
+    '''Normalises df based upon Z-Score only computing on train data
+    Returns normalise df'''
     features = df.drop(columns = ['label'])
     labels = df['label']
     
@@ -36,6 +42,8 @@ def z_score_norm(df,train_frac = 0.7):
     return norm_df
 
 def window_creation(norm_df, window_size=48):
+    '''Converts the large DF into windows to be ran through model for memory and speed reasons
+    Returns tensors contrain x and y windows (x = features,y = labels)'''
     features = norm_df.drop('label', axis=1)
     labels   = norm_df['label']
 
@@ -48,6 +56,8 @@ def window_creation(norm_df, window_size=48):
     return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
 
 def train_val_test_split (x,y,train_frac = 0.7,val_frac = 0.15):
+    '''Splits data chronologically into fraction passed in function
+    Returns x_train, y_train, x_val, y_val, x_test, y_test'''
     size = len(y)
     train_end = int(size * train_frac)
     val_end = int(size * (train_frac + val_frac))
@@ -59,6 +69,8 @@ def train_val_test_split (x,y,train_frac = 0.7,val_frac = 0.15):
     return x_train, y_train, x_val, y_val, x_test, y_test
 
 def feature_creation(df):
+    '''Engineers new features to help model make meaningful learning from data.
+    Returns df with new features as seperate columns'''
     out = df.copy()
     
     out['logret_close'] = np.log(df['close']).diff()
@@ -127,13 +139,15 @@ def feature_creation(df):
     return out.dropna()
 
 def make_label_k_epsilon(df, k=8, eps_quantile=0.6, train_frac=0.7, use_log_returns=True):
+    '''Method of label creation using k epsilon method
+    Returns a new dataframe with labels'''
     import numpy as np
     out = df.copy()
     r = np.log(out['close']).diff() if use_log_returns else out['close'].pct_change()
     s = r.rolling(k).sum().shift(-k)               
     n = len(s); train_end = int(n * train_frac)
     eps = float(np.nanquantile(np.abs(s.iloc[:train_end]), eps_quantile))  
-    y = np.where(s >  eps, 1, np.where(s < -eps, 0, np.nan))               # drop small moves
+    y = np.where(s >  eps, 1, np.where(s < -eps, 0, np.nan)) # drop small moves
     out['label'] = y
     out = out.iloc[:-k].dropna(subset=['label']).copy()  
     out['label'] = out['label'].astype(int)
