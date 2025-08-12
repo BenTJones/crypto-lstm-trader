@@ -82,12 +82,10 @@ def train_epoch(model,train_loader,optimizer,loss_metric,device,log_every=50):
         y_batch = y_batch.to(device)
         optimizer.zero_grad()
         #sets up the optimzer resetting prev grads and moving items to device
-        if model.training:
-            x_batch = x_batch + torch.randn_like(x_batch) * 0.02
+
         logits = model(x_batch)
         loss= loss_metric(logits,y_batch)
         loss.backward()
-        
         prev_grad_norm = grad_norm(model.parameters())
         
         clip_grad_norm_(model.parameters(), 1.0)
@@ -175,13 +173,13 @@ def fit(model,train_loader,val_loader,epochs,lr,device,save_path = 'models/best.
         
         v_roc,v_pr = threshold_free_metrics(v_probs,v_ys)
     
-        val_prev = float(np.mean(v_ys))  # e.g., ~0.52 for your data
+        val_prev = float(np.mean(v_ys)) 
 
         tinfo = select_threshold_constrained(
             v_probs, v_ys,
-            # Keep predicted positive rate near prevalence (±10%)
-            min_pos_rate=max(0.05, val_prev - 0.10),
-            max_pos_rate=min(0.95, val_prev + 0.10),
+            # Keep predicted positive rate near prevalenc
+            min_pos_rate=max(0.05, val_prev - 0.05),
+            max_pos_rate=min(0.95, val_prev + 0.05),
             # Don’t accept thresholds that have a low precision
             min_precision=max(0.55, val_prev),
         )
