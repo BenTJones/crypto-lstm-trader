@@ -106,7 +106,7 @@ def feature_creation(df):
         out['sin_hour'] = np.sin(2*np.pi*hour/24)
         out['cos_hour'] = np.cos(2*np.pi*hour/24)
 
-    # Range-based vol estimators (lower-noise than close-close)
+    # Range-based vol estimators used because they have lower noise than price.
     hl_log = np.log(out['high'] / out['low']).clip(lower=0)
     oc_log = np.log(out['close'] / out['open']).fillna(0)
 
@@ -120,9 +120,21 @@ def feature_creation(df):
     out['gk_24'] = np.sqrt(gk_var.rolling(24, min_periods=24).mean().clip(lower=0))
     out['gk_48'] = np.sqrt(gk_var.rolling(48, min_periods=48).mean().clip(lower=0))
 
-    # Momentum deltas (capture acceleration)
+    # Momentum deltas (capture acceleration of prices)
     out['drsi_14']     = out['rsi_14'].diff()
     out['dmacd_hist']  = out['macd_hist'].diff()
     
     return out.dropna()
 
+def make_label_k_epsilon(df, k=8, eps_quantile=0.6, train_frac=0.7, use_log_returns=True):
+    import numpy as np
+    out = df.copy()
+    r = np.log(out['close']).diff() if use_log_returns else out['close'].pct_change()
+    s = r.rolling(k).sum().shift(-k)               
+    n = len(s); train_end = int(n * train_frac)
+    eps = float(np.nanquantile(np.abs(s.iloc[:train_end]), eps_quantile))  
+    y = np.where(s >  eps, 1, np.where(s < -eps, 0, np.nan))               # drop small moves
+    out['label'] = y
+    out = out.iloc[:-k].dropna(subset=['label']).copy()  
+    out['label'] = out['label'].astype(int)
+    return out

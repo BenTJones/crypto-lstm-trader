@@ -3,16 +3,18 @@ import torch.nn as nn
 
 class LSTMClassifier(nn.Module):
     
-    def __init__(self,input_size = 5, hidden_size = 64, num_layers = 1, dropout = 0.0):
+    def __init__(self, input_size, hidden_size=64, num_layers=1, head_dropout=0.2, input_dropout=0.1):
         super().__init__()
+        self.in_drop = nn.Dropout(input_dropout)
         self.lstm = nn.LSTM(
-            input_size = input_size, # Determined by num of cols in features OHLCV
-            hidden_size = hidden_size, #Size of hidden states,therefore memory
-            num_layers = num_layers, #How many LSTM layers are stacked
-            batch_first = True, #Ensures order is batch, time then features
-            dropout = dropout if num_layers > 1 else 0.0
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=0.0  # only works if num_layers > 1
         )
-        self.head = nn.Linear(hidden_size,1)
+        self.head_drop = nn.Dropout(head_dropout)
+        self.head = nn.Linear(hidden_size, 1)
         
     def forward(self,x):
         _, (hidden_n,_) = self.lstm(x)

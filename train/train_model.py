@@ -82,7 +82,8 @@ def train_epoch(model,train_loader,optimizer,loss_metric,device,log_every=50):
         y_batch = y_batch.to(device)
         optimizer.zero_grad()
         #sets up the optimzer resetting prev grads and moving items to device
-        
+        if model.training:
+            x_batch = x_batch + torch.randn_like(x_batch) * 0.02
         logits = model(x_batch)
         loss= loss_metric(logits,y_batch)
         loss.backward()
@@ -155,7 +156,7 @@ def fit(model,train_loader,val_loader,epochs,lr,device,save_path = 'models/best.
     Tests loss on each epoch and save the model with lowest loss.
     Returns model, t star score and history dict containing validation test scores.'''
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(),lr = lr,weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(),lr = lr,weight_decay=1e-3)
     loss_metric = nn.BCEWithLogitsLoss(pos_weight= pos_weight) 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode = 'min', factor = 0.5, patience= 2, threshold=1e-3,
@@ -168,18 +169,27 @@ def fit(model,train_loader,val_loader,epochs,lr,device,save_path = 'models/best.
     history = {"val_loss": [], "val_auc": [], "val_prauc": [], "t_star": []}
     
     for epoch in range(1,epochs+1):
-        t_acc,t_loss = train_epoch(model,train_loader,optimizer,loss_metric,device,log_every=100)
+        t_acc,t_loss = train_epoch(model,train_loader,optimizer,loss_metric,device,log_every=50)
         v_acc,v_loss,v_probs, v_ys = validate_training(model,val_loader,loss_metric,device,collect_probs= True)
         scheduler.step(v_loss)
         
         v_roc,v_pr = threshold_free_metrics(v_probs,v_ys)
     
-        min_prec = max(0.55, float(np.mean(v_ys)))
+        val_prev = float(np.mean(v_ys))  # e.g., ~0.52 for your data
+
         tinfo = select_threshold_constrained(
             v_probs, v_ys,
-            min_pos_rate=0.05, max_pos_rate=0.95,
-            min_precision=min_prec
+            # Keep predicted positive rate near prevalence (±10%)
+            min_pos_rate=max(0.05, val_prev - 0.10),
+            max_pos_rate=min(0.95, val_prev + 0.10),
+            # Don’t accept thresholds that have a low precision
+            min_precision=max(0.55, val_prev),
         )
+
+        if tinfo["f1"] < 0:
+            # Pick threshold so pos_rate ~ prevalence 
+            t_eq_prev = float(np.quantile(v_probs, 1.0 - val_prev))
+            tinfo = {"t": t_eq_prev, "f1": -1.0, "prec": 0.0, "rec": 0.0, "pos_rate": val_prev}
 
         print(
             f"Epoch num: {epoch}"
@@ -212,4 +222,47 @@ def fit(model,train_loader,val_loader,epochs,lr,device,save_path = 'models/best.
         
     model.load_state_dict(torch.load(save_path, map_location=device))
     return model, best_t_star, history
+
+@torch.no_grad()
+def predict_probs(model, data_loader, device):
+    '''Predicts probabilties for a given loader without calculating gradients or loss'''
+    model.eval()
+    all_probs , all_ys = [], []
+    for xb,yb in data_loader:
+        logits = model(xb)
+        probs = torch.sigmoid(logits).detach().numpy()
+        all_probs.append(probs)
+        all_ys.append(yb.numpy())
+    probs = np.concatenate(all_probs, axis = 0)
+    y_true = np.concatenate(all_ys,axis = 0)
+    return probs,y_true
+
+def thresholded_metrics(probs, y_true, t):
+    """No threshold (ROC/PR) + thresholded (F1/Prec/Rec/PosRate) at t star val t."""
+    probs  = np.asarray(probs).ravel()
+    y_true = np.asarray(y_true).astype(int).ravel()
+
+    # AUC guards (ROC needs both classes)
+    roc = roc_auc_score(y_true, probs) if len(np.unique(y_true)) > 1 else float("nan")
+    pr  = average_precision_score(y_true, probs)
+
+    yhat = (probs >= t)
+    return {
+        "roc": roc,
+        "pr":  pr,
+        "f1":  f1_score(y_true, yhat, zero_division=0),
+        "prec": precision_score(y_true, yhat, zero_division=0),
+        "rec":  recall_score(y_true, yhat, zero_division=0),
+        "pos_rate": float(yhat.mean()),
+        "t": float(t),
+        "prevalence": float(y_true.mean()),
+        "n": int(len(y_true)),
+    }
+
+@torch.no_grad()
+def evaluate_test(model, test_loader, device, t_star):
+    """Oneshot test evaluation using frozen t* from validation step."""
+    probs, y_true = predict_probs(model, test_loader, device)
+    report = thresholded_metrics(probs, y_true, t_star)
+    return report, probs, y_true
 
