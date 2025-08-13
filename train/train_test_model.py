@@ -227,7 +227,9 @@ def predict_probs(model, data_loader, device):
     model.eval()
     all_probs , all_ys = [], []
     for xb,yb in data_loader:
-        logits = model(xb)
+        xb = xb.to(device)
+        yb = yb.to(device)
+        logits = model(xb).to
         probs = torch.sigmoid(logits).detach().numpy()
         all_probs.append(probs)
         all_ys.append(yb.numpy())
