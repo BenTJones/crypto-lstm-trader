@@ -44,16 +44,21 @@ def z_score_norm(df,train_frac = 0.7):
 def window_creation(norm_df, window_size=48):
     '''Converts the large DF into windows to be ran through model for memory and speed reasons
     Returns tensors contrain x and y windows (x = features,y = labels)'''
-    features = norm_df.drop('label', axis=1)
-    labels   = norm_df['label']
+    feats = norm_df.drop(columns=["label"]).to_numpy()
+    labels = norm_df["label"].to_numpy()
+    n, W = len(norm_df), window_size
 
-    X, y = [], []
-    for i in range(len(labels) - window_size):
-        X.append(features.iloc[i:i+window_size])
-        y.append(labels.iloc[i+window_size-1])
+    X_list, y_list, ends = [], [], []
+    for end in range(W - 1, n):                 # include last row (end == n-1)
+        start = end - (W - 1)
+        X_list.append(feats[start:end + 1])     # window rows [start..end], length W
+        y_list.append(labels[end])              # label at window **end**
+        ends.append(end)
 
-    X = np.array(X); y = np.array(y)
-    return torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+    x = torch.tensor(np.stack(X_list), dtype=torch.float32)
+    y = torch.tensor(np.array(y_list), dtype=torch.float32)
+    
+    return x,y
 
 def train_val_test_split (x,y,train_frac = 0.7,val_frac = 0.15):
     '''Splits data chronologically into fraction passed in function
@@ -118,21 +123,21 @@ def feature_creation(df):
         out['sin_hour'] = np.sin(2*np.pi*hour/24)
         out['cos_hour'] = np.cos(2*np.pi*hour/24)
 
-    # Range-based vol estimators used because they have lower noise than price.
+    #Range-based vol estimators used because they have lower noise than price.
     hl_log = np.log(out['high'] / out['low']).clip(lower=0)
     oc_log = np.log(out['close'] / out['open']).fillna(0)
 
-    # Parkinson (uses high-low)
+    # Parkinson(uses high-low)
     parkinson_var = (hl_log**2) / (4*np.log(2))
     out['parkinson_24'] = np.sqrt(parkinson_var.rolling(24, min_periods=24).mean())
     out['parkinson_48'] = np.sqrt(parkinson_var.rolling(48, min_periods=48).mean())
 
-    # Garman–Klass (uses high, low, open, close)
+    # Garman–Klass (uses high, low, open, close).
     gk_var = 0.5*(hl_log**2) - (2*np.log(2)-1)*(oc_log**2)
     out['gk_24'] = np.sqrt(gk_var.rolling(24, min_periods=24).mean().clip(lower=0))
     out['gk_48'] = np.sqrt(gk_var.rolling(48, min_periods=48).mean().clip(lower=0))
 
-    # Momentum deltas (capture acceleration of prices)
+    # Momentum deltas(capture acceleration of prices)
     out['drsi_14']     = out['rsi_14'].diff()
     out['dmacd_hist']  = out['macd_hist'].diff()
     
